@@ -4,8 +4,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-LOG_PATH = "logs/training_log.csv"
-OUTPUT_PATH = "results/learning_curve.png"
+LOG_PATH = "logs/dino_cnn_log.csv"
+OUTPUT_PATH = "results/learning_curve_cnn.png"
 RANDOM_BASELINE = 177
 WINDOW = 10
 
