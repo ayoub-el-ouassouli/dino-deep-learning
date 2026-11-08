@@ -1,18 +1,19 @@
 import csv
+import time
 from pathlib import Path
 
 from agent.agent import Agent
 from environment.dino_env import DinoEnv
 from training.config import Config
 
-MODEL_PATH = "models/dino_dqn_best.pt"
-FINAL_MODEL_PATH = "models/dino_dqn_final.pt"
-LOG_PATH = "logs/training_log.csv"
 
-
-def train(config: Config) -> None:
-    env = DinoEnv()
+def train(config: Config, env, name: str) -> None:
+    """Train an agent on the given environment. Files are named after `name`."""
     agent = Agent(config)
+
+    model_path = f"models/{name}_best.pt"
+    final_path = f"models/{name}_final.pt"
+    log_path = f"logs/{name}_log.csv"
 
     Path("models").mkdir(exist_ok=True)
     Path("logs").mkdir(exist_ok=True)
@@ -20,8 +21,9 @@ def train(config: Config) -> None:
     scores: list[int] = []
     best_average = float("-inf")
     total_steps = 0
+    start_time = time.perf_counter()
 
-    with open(LOG_PATH, "w", newline="") as log_file:
+    with open(log_path, "w", newline="") as log_file:
         writer = csv.writer(log_file)
         writer.writerow(["episode", "score", "total_reward", "epsilon", "avg_loss"])
 
@@ -39,9 +41,13 @@ def train(config: Config) -> None:
                 total_reward += reward
                 total_steps += 1
 
-                loss = agent.learn()
-                if loss is not None:
-                    losses.append(loss)
+                if (
+                    total_steps >= config.learning_starts
+                    and total_steps % config.learn_every == 0
+                ):
+                    loss = agent.learn()
+                    if loss is not None:
+                        losses.append(loss)
 
                 agent.decay_epsilon()
                 if total_steps % config.target_update_every == 0:
@@ -61,18 +67,20 @@ def train(config: Config) -> None:
             recent_average = sum(scores[-20:]) / len(scores[-20:])
             if len(scores) >= 20 and recent_average > best_average:
                 best_average = recent_average
-                agent.save(MODEL_PATH)
+                agent.save(model_path)
 
             if episode % 10 == 0:
+                minutes = (time.perf_counter() - start_time) / 60
                 print(
-                    f"Episode {episode:4d} | last-10 avg score: "
-                    f"{sum(scores[-10:]) / 10:7.1f} | epsilon: {agent.epsilon:.3f} "
-                    f"| loss: {average_loss:.4f}"
+                    f"Episode {episode:4d} | steps {total_steps:7d} | "
+                    f"last-10 avg score: {sum(scores[-10:]) / 10:7.1f} | "
+                    f"epsilon: {agent.epsilon:.3f} | loss: {average_loss:.4f} | "
+                    f"{minutes:.1f} min"
                 )
 
-    agent.save(FINAL_MODEL_PATH)
+    agent.save(final_path)
     print(f"Done. Best 20-episode average: {best_average:.1f}")
 
 
 if __name__ == "__main__":
-    train(Config())
+    train(Config(), DinoEnv(), "dino_dqn")

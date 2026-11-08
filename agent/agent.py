@@ -4,8 +4,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from agent.cnn_dqn import CNNDQN                      # NEW
 from agent.dqn import DQN
-from agent.replay_memory import ReplayMemory
+from agent.replay_memory import ImageReplayMemory, ReplayMemory   # CHANGED
 from training.config import Config
 
 
@@ -15,15 +16,20 @@ class Agent:
     def __init__(self, config: Config) -> None:
         self.config = config
 
-        self.policy_net = DQN(config.state_size, config.action_size, config.hidden_size)
-        self.target_net = DQN(config.state_size, config.action_size, config.hidden_size)
+        # CHANGED: pick the network and memory that match the observation type
+        if config.visual:
+            self.policy_net = CNNDQN(config.input_shape, config.action_size)
+            self.target_net = CNNDQN(config.input_shape, config.action_size)
+            self.memory = ImageReplayMemory(config.memory_capacity, config.input_shape)
+        else:
+            self.policy_net = DQN(config.state_size, config.action_size, config.hidden_size)
+            self.target_net = DQN(config.state_size, config.action_size, config.hidden_size)
+            self.memory = ReplayMemory(config.memory_capacity)
+
         self.update_target()
         self.target_net.eval()   # it is never trained directly
 
-        self.memory = ReplayMemory(config.memory_capacity)
         self.epsilon = config.epsilon_start
-
-        # NEW: the optimizer adjusts the policy network's weights
         self.optimizer = torch.optim.Adam(
             self.policy_net.parameters(), lr=config.learning_rate
         )
@@ -37,8 +43,11 @@ class Agent:
         if explore and random.random() < self.epsilon:
             return random.randrange(self.config.action_size)
 
+        tensor = torch.from_numpy(state)
+        if state.ndim == 3:                  # NEW: an image stack needs a batch dimension
+            tensor = tensor.unsqueeze(0)
         with torch.no_grad():
-            q_values = self.policy_net(torch.from_numpy(state))
+            q_values = self.policy_net(tensor)
         return int(torch.argmax(q_values).item())
 
     def decay_epsilon(self) -> None:
@@ -47,7 +56,6 @@ class Agent:
             self.config.epsilon_end, self.epsilon * self.config.epsilon_decay
         )
 
-    # NEW: one learning step
     def learn(self) -> float | None:
         """Train on one random batch. Returns the loss, or None if memory is too small."""
         if len(self.memory) < self.config.batch_size:
@@ -76,7 +84,6 @@ class Agent:
 
         return float(loss.item())
 
-
     def save(self, path: str) -> None:
         """Save the policy network's weights to a file."""
         torch.save(self.policy_net.state_dict(), path)
@@ -85,4 +92,4 @@ class Agent:
         """Load weights from a file into both networks."""
         weights = torch.load(path, map_location="cpu", weights_only=True)
         self.policy_net.load_state_dict(weights)
-        self.update_target()    
+        self.update_target()
